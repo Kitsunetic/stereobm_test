@@ -49,6 +49,11 @@
 
 namespace yg
 {
+//! computes valid disparity ROI from the valid ROIs of the rectified images (that are returned by cv::stereoRectify())
+cv::Rect getValidDisparityROI( cv::Rect roi1, cv::Rect roi2,
+                               int minDisparity, int numberOfDisparities,
+                               int SADWindowSize );
+
 /** @brief The base class for stereo correspondence algorithms.
  */
 class CV_EXPORTS_W StereoMatcher : public cv::Algorithm

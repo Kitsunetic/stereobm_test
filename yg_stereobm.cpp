@@ -54,6 +54,24 @@ using namespace cv;
 namespace yg
 {
 
+Rect getValidDisparityROI( Rect roi1, Rect roi2,
+                          int minDisparity,
+                          int numberOfDisparities,
+                          int SADWindowSize )
+{
+    int SW2 = SADWindowSize/2;
+    int maxD = minDisparity + numberOfDisparities - 1;
+
+    int xmin = std::max(roi1.x, roi2.x + maxD) + SW2;
+    int xmax = std::min(roi1.x + roi1.width, roi2.x + roi2.width) - SW2;
+    int ymin = std::max(roi1.y, roi2.y) + SW2;
+    int ymax = std::min(roi1.y + roi1.height, roi2.y + roi2.height) - SW2;
+
+    Rect r(xmin, ymin, xmax - xmin, ymax - ymin);
+
+    return r.width > 0 && r.height > 0 ? r : Rect();
+}
+
 struct StereoBMParams
 {
     StereoBMParams(int _numDisparities=64, int _SADWindowSize=21)
@@ -642,10 +660,12 @@ public:
         parallel_for_(Range(0, 2), PrefilterInvoker(left0, right0, left, right, _buf, _buf + bufSize1, &params), 1);
 
         Rect validDisparityRect(0, 0, width, height), R1 = params.roi1, R2 = params.roi2;
-        validDisparityRect = getValidDisparityROI(R1.area() > 0 ? R1 : validDisparityRect,
+        /*
+        validDisparityRect = yg::getValidDisparityROI(R1.area() > 0 ? R1 : validDisparityRect,
                                                   R2.area() > 0 ? R2 : validDisparityRect,
                                                   params.minDisparity, params.numDisparities,
                                                   params.SADWindowSize);
+                                                  */
 
         parallel_for_(Range(0, nstripes),
                       FindStereoCorrespInvoker(left, right, disp, &params, nstripes,
