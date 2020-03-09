@@ -327,17 +327,22 @@ findStereoCorrespondenceBM( const Mat& left, const Mat& right,
     }
     dptr += lofs;
 
-    for( x = 0; x < width1; x++, dptr++ )
+    for( x = 0; x < width; x++, dptr++ )
     {
-        int* costptr = cost.data ? cost.ptr<int>() + lofs + x : &costbuf;
+        //int* costptr = cost.data ? cost.ptr<int>() + lofs + x : &costbuf;
+        int* costptr = cost.data ? cost.ptr<int>() + x : &costbuf;
         int x0 = x - wsz2 - 1, x1 = x + wsz2;
         const uchar* cbuf_sub = cbuf0 + ((x0 + wsz2 + 1) % (wsz + 1))*cstep - dy0*ndisp;
         cbuf = cbuf0 + ((x1 + wsz2 + 1) % (wsz + 1))*cstep - dy0*ndisp;
         hsad = hsad0 - dy0*ndisp;
+        lptr_sub = lptr0 + MIN(x0, width-1) - dy0*sstep;
+        lptr = lptr0 + MIN(x1, width-1) - dy0*sstep;
+        rptr = rptr0 + MIN(x1, width) - dy0*sstep;
+        /*
         lptr_sub = lptr0 + MIN(MAX(x0, -lofs), width-1-lofs) - dy0*sstep;
         lptr = lptr0 + MIN(MAX(x1, -lofs), width-1-lofs) - dy0*sstep;
         rptr = rptr0 + MIN(MAX(x1, -rofs), width-ndisp-rofs) - dy0*sstep;
-
+        */
         for( y = -dy0; y < height + dy1; y++, cbuf += ndisp, cbuf_sub += ndisp,
             hsad += ndisp, lptr += sstep, lptr_sub += sstep, rptr += sstep )
         {
