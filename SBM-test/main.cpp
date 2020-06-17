@@ -11,7 +11,7 @@
 #include "yg_stereobm.hpp"
 #include "pathkit.hpp"
 
-//#define ADJUST_WLS_FILTER
+//#define ADJUST_WLS_FILTER // TODO 20200617: not made yet
 #define USE_YG_STEREOBM
 #define USE_ROTATED_STEREO
 #define VERBOSE_IMWRITE
@@ -55,8 +55,6 @@ void adjust_stereobm(Mat &imL_, Mat &imR_, Mat &depth, Mat &depth_rot, int num_d
     float h = (float)disp.cols;
     float pi_h = (float)M_PI / h;
     Mat rl(disp.rows, disp.cols, CV_32FC1, Scalar(0));
-    Mat rl_mask, rl_out, rl_out_rot;
-    
     #pragma omp parallel for
     for(int i = 0; i < disp.rows; i++) {
         for(int j = 0; j < disp.cols; j++) {
@@ -68,17 +66,22 @@ void adjust_stereobm(Mat &imL_, Mat &imR_, Mat &depth, Mat &depth_rot, int num_d
         }
     }
     
-    // depth
+    // masking
+    Mat rl_mask, rl_out;
     rl_mask = rl > 0;
     rl.copyTo(rl_out, rl_mask);
+    
+#ifdef USE_ROTATED_STEREO
+#ifdef VERBOSE_IMWRITE
+    imwrite("rl_out_rot.png", rl_out);
+#endif
+    cv::rotate(rl_out, rl_out, cv::ROTATE_90_COUNTERCLOCKWISE);
+    rl_out = yg::rotate_image(rl_out, Vec3d(RAD(-90), 0, 0));
+#endif
+    
+    // depth
     normalize(rl_out, depth, 0, 255, CV_MINMAX, CV_8U);
     cvtColor(depth, depth, CV_GRAY2BGR);
-    
-    // depth_rot
-    cv::rotate(rl_out, rl_out_rot, ROTATE_90_COUNTERCLOCKWISE);
-    rl_out_rot = yg::rotate_image(rl_out_rot, Vec3d(RAD(-90), 0, 0));
-    normalize(rl_out_rot, depth_rot, 0, 255, CV_MINMAX, CV_8U);
-    cvtColor(depth_rot, depth_rot, CV_GRAY2BGR);
 }
 
 void adjust_stereobm(Mat &imL, Mat &imR, Mat &depth, int num_disp, int window_size, float baseline=0.5) {
