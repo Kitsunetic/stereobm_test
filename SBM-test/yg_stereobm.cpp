@@ -54,6 +54,7 @@ using namespace cv;
 namespace yg
 {
 
+// 다른 CV 함수 불러온 것 뿐임.
 Rect getValidDisparityROI( Rect roi1, Rect roi2,
                           int minDisparity,
                           int numberOfDisparities,
@@ -254,22 +255,23 @@ findStereoCorrespondenceBM( const Mat& left, const Mat& right,
                             Mat& disp, Mat& cost, const StereoBMParams& state,
                             uchar* buf, int _dy0, int _dy1 )
 {
-
-    const int ALIGN = 16;
+    // BufferBM 대신에 uchar* buf를 받는다.
+    
+    const int ALIGN = 16; // alignPtr에서 size로 사용됨
     int x, y, d;
     int wsz = state.SADWindowSize, wsz2 = wsz/2;
-    int dy0 = MIN(_dy0, wsz2+1), dy1 = MIN(_dy1, wsz2+1);
+    int dy0 = MIN(_dy0, wsz2+1), dy1 = MIN(_dy1, wsz2+1); // ?
     int ndisp = state.numDisparities;
     int mindisp = state.minDisparity;
-    int lofs = MAX(ndisp - 1 + mindisp, 0);
-    int rofs = -MIN(ndisp - 1 + mindisp, 0);
+    int lofs = MAX(ndisp - 1 + mindisp, 0); // 좌측의 검은 영역 가로 넓이
+    int rofs = -MIN(ndisp - 1 + mindisp, 0); // 우측의 검은 영역 가로 넓이
     int width = left.cols, height = left.rows;
     int width1 = width - rofs - ndisp + 1;
-    int ftzero = state.preFilterCap;
+    int ftzero = state.preFilterCap; // ??
     int textureThreshold = state.textureThreshold;
     int uniquenessRatio = state.uniquenessRatio;
     const int disp_shift = dispShiftTemplate<mType>::value;
-    mType FILTERED = (mType)((mindisp - 1) << disp_shift);
+    mType FILTERED = (mType)((mindisp - 1) << disp_shift); // mindisp가 보통 0이니까 FILTERED는 -16
 
     int *sad, *hsad0, *hsad, *hsad_sub, *htext;
     uchar *cbuf0, *cbuf;
@@ -282,16 +284,33 @@ findStereoCorrespondenceBM( const Mat& left, const Mat& right,
     int cstep = (height+dy0+dy1)*ndisp;
     int costbuf = 0;
     int coststep = cost.data ? (int)(cost.step/sizeof(costbuf)) : 0;
+    
+    // tab 추가됨
     const int TABSZ = 256;
     uchar tab[TABSZ];
-
-    sad = (int*)alignPtr(buf + sizeof(sad[0]), ALIGN);
-    hsad0 = (int*)alignPtr(sad + ndisp + 1 + dy0*ndisp, ALIGN);
-    htext = (int*)alignPtr((int*)(hsad0 + (height+dy1)*ndisp) + wsz2 + 2, ALIGN);
-    cbuf0 = (uchar*)alignPtr((uchar*)(htext + height + wsz2 + 2) + dy0*ndisp, ALIGN);
-
-    for( x = 0; x < TABSZ; x++ )
+    
+    // memset에서 alignPtr로 변경(free 안해줘도 되서 그런 듯)
+    sad = (int*)alignPtr(buf + sizeof(sad[0]), ALIGN); // int16 
+    hsad0 = (int*)alignPtr(sad + ndisp + 1 + dy0*ndisp, ALIGN); // 16bit int pointer
+    htext = (int*)alignPtr((int*)(hsad0 + (height+dy1)*ndisp) + wsz2 + 2, ALIGN); // 16bit int pointer
+    cbuf0 = (uchar*)alignPtr((uchar*)(htext + height + wsz2 + 2) + dy0*ndisp, ALIGN); 
+    
+    // tab 추가됨
+    // ftzero = |x - prefiltercap(=31)|
+    // prefilter는 xsobel 등?
+    /*
+    std::ofstream fout_tab("tab.txt");
+    for( x = 0; x < TABSZ; x++ ) {
         tab[x] = (uchar)std::abs(x - ftzero);
+        fout_tab << x << "\t" << (int)tab[x] << std::endl;
+    }
+    fout_tab.close();
+    */
+    //tab[x] = 100;
+    // tab은 tab[0:31] = 0, tab[32:256] = 1~224
+    // 기존에 buf에서 함께 받아지던거를 안 받으니까 여기서 초기화 하는 듯?
+    // 딱히 뭐로 초기화를 하던 큰 변화가 없음
+    // 그런데 dptr의 초기화에 tab이 사용됨
 
     // initialize buffers
     memset( hsad0 - dy0*ndisp, 0, (height + dy0 + dy1)*ndisp*sizeof(hsad0[0]) );
@@ -299,8 +318,9 @@ findStereoCorrespondenceBM( const Mat& left, const Mat& right,
 
     for( x = -wsz2-1; x < wsz2; x++ )
     {
-        hsad = hsad0 - dy0*ndisp; cbuf = cbuf0 + (x + wsz2 + 1)*cstep - dy0*ndisp;
-        lptr = lptr0 + std::min(std::max(x, -lofs), width-lofs-1) - dy0*sstep;
+        hsad = hsad0 - dy0*ndisp;
+        cbuf = cbuf0 + (x + wsz2 + 1)*cstep - dy0*ndisp;
+        lptr = lptr0 + std::min(std::max(x, -lofs), width-lofs-1) - dy0*sstep; // lptr을 -lofs ~ width-lofs-1 사이로 제한
         rptr = rptr0 + std::min(std::max(x, -rofs), width-rofs-ndisp) - dy0*sstep;
         for( y = -dy0; y < height + dy1; y++, hsad += ndisp, cbuf += ndisp, lptr += sstep, rptr += sstep )
         {
@@ -318,6 +338,7 @@ findStereoCorrespondenceBM( const Mat& left, const Mat& right,
     }
 
     // initialize the left and right borders of the disparity map
+    // 좌측 lof를 -16으로 초기화
     for( y = 0; y < height; y++ )
     {
         for( x = 0; x < lofs; x++ )
@@ -326,7 +347,7 @@ findStereoCorrespondenceBM( const Mat& left, const Mat& right,
             dptr[y*dstep + x] = FILTERED;
     }
     dptr += lofs;
-
+    
     for( x = 0; x < width; x++, dptr++ )
     {
         //int* costptr = cost.data ? cost.ptr<int>() + lofs + x : &costbuf;
@@ -335,6 +356,9 @@ findStereoCorrespondenceBM( const Mat& left, const Mat& right,
         const uchar* cbuf_sub = cbuf0 + ((x0 + wsz2 + 1) % (wsz + 1))*cstep - dy0*ndisp;
         cbuf = cbuf0 + ((x1 + wsz2 + 1) % (wsz + 1))*cstep - dy0*ndisp;
         hsad = hsad0 - dy0*ndisp;
+        
+        // 이 부분이 변경됨 --> lptr/rptr 탐색 범위를 이미지 전체로 변경
+        // --> 좌측에 검은 영역이 생기지 않음
         lptr_sub = lptr0 + MIN(x0, width-1) - dy0*sstep;
         lptr = lptr0 + MIN(x1, width-1) - dy0*sstep;
         rptr = rptr0 + MIN(x1, width) - dy0*sstep;
@@ -400,12 +424,14 @@ findStereoCorrespondenceBM( const Mat& left, const Mat& right,
             }
             /*
             tsum += htext[y + wsz2] - htext[y - wsz2 - 1];
+            // threshold 미만의 값(mismatch의 경우?)은 -16으로 고정
             if( tsum < textureThreshold )
             {
                 dptr[y*dstep] = FILTERED;
                 continue;
             }
             
+            // 
             if( uniquenessRatio > 0 )
             {
                 int thresh = minsad + (minsad * uniquenessRatio/100);
