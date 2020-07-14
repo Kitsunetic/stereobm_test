@@ -16,9 +16,9 @@
 
 // =====================================
 // @@ Choose One Algorithm @@
-//#define USE_YG_SBM
+#define USE_YG_SBM
 //#define USE_CV_SBM
-#define USE_CV_SGBM
+//#define USE_CV_SGBM
 // =====================================
 
 #define USE_ROTATED_STEREO
@@ -64,12 +64,12 @@ void adjust_stereobm(Mat &imL_, Mat &imR_, Mat &h_dis, Mat &v_dis, Mat &depth, M
     if(imR.channels() != 1) cvtColor(imR, imR, CV_BGR2GRAY);
     
     Mat disp, disp_sbm;
-#ifdef defined(USE_YG_SBM)
+	int maxdisp = 256;
+#if defined(USE_YG_SBM)
     Ptr<yg::StereoBM> sbm = yg::StereoBM::create(num_disp, window_size);
 #elif defined(USE_CV_SBM)
     Ptr<StereoBM> sbm = StereoBM::create(num_disp, window_size);
 #elif defined(USE_CV_SGBM)
-    int maxdisp = 256;
     Ptr<StereoSGBM> sgbm = cv::StereoSGBM::create(0, maxdisp, window_size, 0, 0, 1, 15, 0, 2, 63);
 #endif
 
@@ -81,14 +81,14 @@ void adjust_stereobm(Mat &imL_, Mat &imR_, Mat &h_dis, Mat &v_dis, Mat &depth, M
     cv::copyMakeBorder(imL_rep, imL_rep, 0, 0, maxdisp, 0,CV_HAL_BORDER_CONSTANT);
     cv::copyMakeBorder(imR_rep, imR_rep, 0, 0, maxdisp, 0,CV_HAL_BORDER_CONSTANT);
 
-    imwrite("lclone.png",imL_rep);
-    imwrite("rclone.png",imR_rep);
+#ifdef VERBOSE_IMWRITE
+    imwrite("lclone.png", imL_rep);
+    imwrite("rclone.png", imR_rep);
+#endif
     
     // SBM or SGBM
-#ifdef defined(USE_YG_SBM)
-    sbm->compute(imL, imR, disp_sbm);
-#elif defined(USE_CV_SBM)
-    sbm->compute(imL, imR, disp_sbm);
+#if defined(USE_YG_SBM) || defined(USE_CV_SBM)
+    sbm->compute(imL_rep, imR_rep, disp_sbm);
 #elif defined(USE_CV_SGBM)
     sgbm->compute(imL_rep, imR_rep, disp_sbm);
 #endif
@@ -172,8 +172,10 @@ void adjust_stereobm(Mat &imL_, Mat &imR_, Mat &h_dis, Mat &v_dis, Mat &depth, M
     // depth
     //normalize(rl_out, depth, 0, 255, CV_MINMAX, CV_8U);
     //depth = rl_out/DEPTH_MAX*255.0;
+    cout << rl.type() << endl;
+    imwrite("depth_no-norm.png", rl);
     depth = rl/DEPTH_MAX*255.0;
-    depth.convertTo(depth,CV_8U);
+    depth.convertTo(depth, CV_8U);
     cvtColor(depth, depth, CV_GRAY2BGR);
 }
 
@@ -294,7 +296,7 @@ int main(int argc, char* argv[]) {
     imwrite("depth_comb.png", depth_c);
     
 #ifdef WLS_Filter
-    Mat imL = imread(pathL);
+    imL = imread(pathL);
     Mat depth_wls = adjust_WLS_filter(imL, depth_c, WLS_LAMBDA, WLS_SIGMA);
     imwrite("depth_comb_wls.png", depth_wls);
 #endif

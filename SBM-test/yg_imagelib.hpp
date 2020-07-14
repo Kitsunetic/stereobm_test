@@ -10,7 +10,7 @@
 #define DEGREE(x) 180.0*(x)/M_PI
 
 #define DEPTH_MIN -5.0f
-#define DEPTH_MAX 30.0f
+#define DEPTH_MAX 20.0f
 
 using namespace std;
 using namespace cv;
