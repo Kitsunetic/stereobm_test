@@ -8,16 +8,28 @@
 
 #include <opencv2/ximgproc/disparity_filter.hpp>
 #include <opencv2/opencv.hpp>
+
 #include "yg_imagelib.hpp"
 #include "yg_stereobm.hpp"
 #include "pathkit.hpp"
+#include "debug_print.h"
 
-//#define ADJUST_WLS_FILTER
-#define USE_YG_STEREOBM
+// =====================================
+// @@ Choose One Algorithm @@
+//#define USE_YG_SBM
+//#define USE_CV_SBM
+#define USE_CV_SGBM
+// =====================================
+
 #define USE_ROTATED_STEREO
 #define VERBOSE_IMWRITE
-#define RESIZE 2.0f
+#define RESIZE 1.0f
 #define BASELINE 0.2f
+#define DEPTH_YG
+
+#define WLS_Filter
+#define WLS_LAMBDA 20000
+#define WLS_SIGMA 1.2
 
 using namespace std;
 using namespace cv;
@@ -52,13 +64,13 @@ void adjust_stereobm(Mat &imL_, Mat &imR_, Mat &h_dis, Mat &v_dis, Mat &depth, M
     if(imR.channels() != 1) cvtColor(imR, imR, CV_BGR2GRAY);
     
     Mat disp, disp_sbm;
-#ifdef USE_YG_STEREOBM
-    int maxdisp = 256;
-    //Ptr<yg::StereoBM> sbm = yg::StereoBM::create(num_disp, window_size);
-    Ptr<StereoSGBM> sgbm = cv::StereoSGBM::create(0, maxdisp, window_size, 0, 0, 1, 15, 0, 2, 63);
-
-#else
+#ifdef defined(USE_YG_SBM)
+    Ptr<yg::StereoBM> sbm = yg::StereoBM::create(num_disp, window_size);
+#elif defined(USE_CV_SBM)
     Ptr<StereoBM> sbm = StereoBM::create(num_disp, window_size);
+#elif defined(USE_CV_SGBM)
+    int maxdisp = 256;
+    Ptr<StereoSGBM> sgbm = cv::StereoSGBM::create(0, maxdisp, window_size, 0, 0, 1, 15, 0, 2, 63);
 #endif
 
     int borderType = BORDER_CONSTANT;
@@ -71,10 +83,17 @@ void adjust_stereobm(Mat &imL_, Mat &imR_, Mat &h_dis, Mat &v_dis, Mat &depth, M
 
     imwrite("lclone.png",imL_rep);
     imwrite("rclone.png",imR_rep);
-    //sbm->compute(imL, imR, disp_sbm);
+    
+    // SBM or SGBM
+#ifdef defined(USE_YG_SBM)
+    sbm->compute(imL, imR, disp_sbm);
+#elif defined(USE_CV_SBM)
+    sbm->compute(imL, imR, disp_sbm);
+#elif defined(USE_CV_SGBM)
     sgbm->compute(imL_rep, imR_rep, disp_sbm);
+#endif
+    // Clip black line in left side
     disp_sbm = disp_sbm(dispROI);
-
 
 #ifdef VERBOSE_IMWRITE
     imwrite("disp_sbm.png", disp_sbm);
@@ -100,6 +119,8 @@ void adjust_stereobm(Mat &imL_, Mat &imR_, Mat &h_dis, Mat &v_dis, Mat &depth, M
     float h = (float)disp.cols;
     float pi_h = (float)M_PI / h;
     Mat rl(disp.rows, disp.cols, CV_32FC1, Scalar(0));
+    
+#ifdef DEPTH_YG
     #pragma omp parallel for
     for(int i = 0; i < disp.rows; i++) {
         for(int j = 0; j < disp.cols; j++) {
@@ -110,8 +131,9 @@ void adjust_stereobm(Mat &imL_, Mat &imR_, Mat &h_dis, Mat &v_dis, Mat &depth, M
             }
         }
     }
-
-    /*for(int i=0; i<disp.rows; i++) {
+#else
+    #pragma omp parallel for
+    for(int i=0; i<disp.rows; i++) {
         for(int j=0; j<disp.cols; j++) {
             float d = disp.at<float>(i,j);
             float val = baseline / ((sin(j*pi_h)/tan((j-d)*pi_h)) - cos(j*pi_h));
@@ -123,7 +145,14 @@ void adjust_stereobm(Mat &imL_, Mat &imR_, Mat &h_dis, Mat &v_dis, Mat &depth, M
             else
                 rl.at<float>(i,j) = val;
         }
-    }*/
+    }
+#endif
+    
+#ifdef VERBOSE_IMWRITE
+    // [TEST]
+    imwrite("[TEST] dispmap.png", disp);
+    imwrite("[TEST] rl.png", rl);
+#endif
     
     // masking
     Mat rl_mask, rl_out;
@@ -153,6 +182,30 @@ void adjust_stereobm(Mat &imL, Mat &imR, Mat &h_dis, Mat &v_dis, Mat &depth, int
     adjust_stereobm(imL, imR, h_dis, v_dis, depth, _depth_rot, num_disp, window_size, baseline);
 }
 
+Mat adjust_WLS_filter(Mat im, Mat depth, double lambda=20000, double sigma=1.2) {
+    Mat im_in, depth_in, depth_out;
+    Ptr<ximgproc::DisparityWLSFilter> filter;
+    
+    // preprocessing: color map
+    switch(im.channels()) {
+        case 3: cvtColor(im, im_in, COLOR_BGR2GRAY); break;
+        case 4: cvtColor(im, im_in, COLOR_BGRA2GRAY); break;
+        default: im_in = im;
+    }
+    switch(depth.channels()) {
+        case 3: cvtColor(depth, depth_in, COLOR_BGR2GRAY); break;
+        case 4: cvtColor(depth, depth_in, COLOR_BGRA2GRAY); break;
+        default: depth_in = depth;
+    }
+    
+    // adjust WLS filter
+    filter = ximgproc::createDisparityWLSFilterGeneric(false);
+    filter->setLambda(lambda);
+    filter->setSigmaColor(sigma);
+    filter->filter(im_in, depth_in, depth_out);
+    
+    return depth_out;
+}
 
 int main(int argc, char* argv[]) {
     if(argc < 3) {
@@ -180,15 +233,25 @@ int main(int argc, char* argv[]) {
     }
     
     // image resize
-    resize(imL, imL, Size(), 1/RESIZE, 1/RESIZE);
-    resize(imR, imR, Size(), 1/RESIZE, 1/RESIZE);
+    if(RESIZE != 1.0f) {
+        resize(imL, imL, Size(), 1/RESIZE, 1/RESIZE);
+        resize(imR, imR, Size(), 1/RESIZE, 1/RESIZE);
+    }
     
     // stereobm
     Mat depth, depth2, depth4;
     Mat h_dis, h_dis2, h_dis4, v_dis, v_dis2, v_dis4;
+    START_TIME(__SBM_1__);
     adjust_stereobm(imL, imR, h_dis, v_dis, depth, num_disp, window_size, BASELINE);
-    adjust_stereobm(imL, imR, h_dis2, v_dis2, depth2, num_disp, 11, BASELINE);            // window size parameter
+    STOP_TIME(__SBM_1__);
+    
+    START_TIME(__SBM_2__);
+    adjust_stereobm(imL, imR, h_dis2, v_dis2, depth2, num_disp, 11, BASELINE);
+    STOP_TIME(__SBM_2__);
+    
+    START_TIME(__SBM_3__);
     adjust_stereobm(imL, imR, h_dis4, v_dis4, depth4, num_disp, 5, BASELINE);
+    STOP_TIME(__SBM_3__);
     
     //save each disparity
     imwrite("h_disp.png",h_dis);
@@ -229,4 +292,10 @@ int main(int argc, char* argv[]) {
     imwrite("depth_comb_min.png", depth_c_min);
     imwrite("depth_comb_mean.png", depth_c_mean);
     imwrite("depth_comb.png", depth_c);
+    
+#ifdef WLS_Filter
+    Mat imL = imread(pathL);
+    Mat depth_wls = adjust_WLS_filter(imL, depth_c, WLS_LAMBDA, WLS_SIGMA);
+    imwrite("depth_comb_wls.png", depth_wls);
+#endif
 }
